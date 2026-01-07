@@ -60,7 +60,7 @@ pub async fn verify_client(
 pub async fn delete_client(
     pool: &SqlitePool,
     client_id: &str,
-) -> Result<u64, sqlx::Error> {
+) -> Result<u64, AppError> {
     let res = sqlx::query(
         "DELETE FROM oauth_client WHERE id = ?"
     )
@@ -76,8 +76,8 @@ pub async fn update_client_secret(
     client_id: &str,
     new_secret: &str,
     cost: u32,
-) -> Result<u64, sqlx::Error> {
-    let hash = hash(new_secret, cost).expect("bcrypt failed");
+) -> Result<u64, AppError> {
+    let hash = hash(new_secret, cost).map_err(|_| AppError::Internal)?;
 
     let res = sqlx::query(
         "UPDATE oauth_client SET secret_hash = ? WHERE id = ?"
@@ -89,4 +89,3 @@ pub async fn update_client_secret(
 
     Ok(res.rows_affected())
 }
-

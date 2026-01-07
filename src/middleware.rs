@@ -1,4 +1,6 @@
 use axum::{
+    body::Body,
+    extract::State,
     http::{Request, StatusCode},
     middleware::Next,
     response::Response,
@@ -6,10 +8,10 @@ use axum::{
 
 use crate::state::AppState;
 
-pub async fn admin_auth<B>(
-    state: AppState,
-    req: Request<B>,
-    next: Next<B>,
+pub async fn admin_auth(
+    State(state): State<AppState>,
+    req: Request<Body>,
+    next: Next,
 ) -> Result<Response, StatusCode> {
     let Some(auth) = req.headers().get("authorization") else {
         return Err(StatusCode::UNAUTHORIZED);

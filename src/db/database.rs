@@ -48,4 +48,19 @@ impl Database {
         client::create_client(&self.pool, id, secret, cost).await
     }
 
+    pub async fn delete_client(
+        &self,
+        id: &str,
+    ) -> Result<u64, crate::error::AppError> {
+        client::delete_client(&self.pool, id).await
+    }
+
+    pub async fn update_client_secret(
+        &self,
+        id: &str,
+        secret: &str,
+        cost: u32,
+    ) -> Result<u64, crate::error::AppError> {
+        client::update_client_secret(&self.pool, id, secret, cost).await
+    }
 }
