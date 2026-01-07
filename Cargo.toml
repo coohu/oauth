@@ -11,4 +11,12 @@ serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
 bcrypt = "0.15" 
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "any", "postgres", "sqlite"] }
+sqlx = { version = "0.7", default-features = false, features = ["sqlite", "runtime-tokio"] }
+anyhow = "1.0.100"
+thiserror = "2.0.17"
+chrono = "0.4.42"
+sha2 = "0.10.9"
+dotenvy = "0.15.7"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
