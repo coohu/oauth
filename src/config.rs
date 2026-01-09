@@ -7,6 +7,7 @@ pub struct Config {
     pub bcrypt_cost: u32,
     pub token_ttl_secs: i64,
     pub admin_token: String,
+    pub cf_secret_key: String,
 }
 
 impl Config {
@@ -17,7 +18,7 @@ impl Config {
             std::env::var("DATABASE_URL").expect("DATABASE_URL is required");
 
         let bind = std::env::var("BIND")
-            .unwrap_or_else(|_| "0.0.0.0:8080".into())
+            .unwrap_or_else(|_| "0.0.0.0:8084".into())
             .parse()
             .expect("Invalid BIND");
 
@@ -34,12 +35,16 @@ impl Config {
         let admin_token = std::env::var("ADMIN_TOKEN")
             .expect("ADMIN_TOKEN missing");
 
+        let cf_secret_key = std::env::var("CF_SECRET_KEY")
+            .expect("CF_SECRET_KEY missing");
+
         Self {
             database_url,
             bind,
             bcrypt_cost,
             token_ttl_secs,
             admin_token,
+            cf_secret_key,
         }
     }
 }

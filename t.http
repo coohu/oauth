@@ -1,0 +1,7 @@
+POST http://100.64.0.1:8084/auth/register
+Content-Type: application/json
+
+{
+  "username": "t",
+  "password": "v"
+}

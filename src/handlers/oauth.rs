@@ -1,6 +1,5 @@
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
-
 use crate::{error::AppError, state::AppState};
 
 #[derive(Deserialize)]
@@ -25,15 +24,13 @@ pub async fn issue_token(
             "client_id or client_secret is empty".into(),
         ));
     }
-    state
-        .db
-        .verify_client(&req.client_id, &req.client_secret)
-        .await?;
+    state.db.verify_client(&req.client_id, &req.client_secret).await?;
+    let raw_token = uuid::Uuid::new_v4().to_string();
+    let token_hash = crate::util::hash_token(&raw_token);
+    let expires_at = chrono::Utc::now().timestamp() + state.config.token_ttl_secs;
+    state.db.issue_token(&token_hash, &req.client_id, expires_at, None).await?;
 
-    let token = state
-        .db
-        .issue_token(&req.client_id, state.config.token_ttl_secs)
-        .await?;
+    let token = raw_token;
 
     Ok(Json(TokenResponse {
         access_token: token,

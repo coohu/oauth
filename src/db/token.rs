@@ -1,17 +1,13 @@
-use chrono::{Duration, Utc};
-use sqlx::{Pool, Sqlite};
-use uuid::Uuid;
+use sqlx::AnyPool;
 
-use crate::error::AppError;
-use crate::util::hash_token;
-
-pub async fn init(pool: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
+pub async fn init(pool: &AnyPool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS access_token (
             token_hash TEXT PRIMARY KEY,
             client_id TEXT NOT NULL,
-            expires_at INTEGER NOT NULL
+            expires_at INTEGER NOT NULL,
+            user_id TEXT
         )
         "#,
     )
@@ -20,21 +16,35 @@ pub async fn init(pool: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-pub async fn issue(
-    pool: &Pool<Sqlite>,
+pub async fn insert_access_token(
+    pool: &AnyPool,
+    token_hash: &str,
     client_id: &str,
-    ttl: i64,
-) -> Result<String, AppError> {
-    let raw = Uuid::new_v4().to_string();
-    let hash = hash_token(&raw);
-
-    let expires = (Utc::now() + Duration::seconds(ttl)).timestamp();
-
+    expires_at: i64, // unix timestamp (seconds)
+    user_id: Option<&str>,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT INTO access_token (token_hash, client_id, expires_at) VALUES (?, ?, ?)"
-    ).bind(hash).bind(client_id).bind(expires)
+        r#"
+        INSERT INTO access_token (token_hash, client_id, expires_at, user_id)
+        VALUES (?, ?, ?, ?)
+        "#
+    )
+    .bind(token_hash)
+    .bind(client_id)
+    .bind(expires_at)
+    .bind(user_id)
     .execute(pool)
     .await?;
 
-    Ok(raw)
+    Ok(())
+}
+
+pub async fn get_access_token(pool: &AnyPool, token_hash: &str) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
+    sqlx::query_as::<_, (String, Option<String>)>(
+        "SELECT client_id, user_id FROM access_token WHERE token_hash = ? AND expires_at > ?"
+    )
+    .bind(token_hash)
+    .bind(chrono::Utc::now().timestamp())
+    .fetch_optional(pool)
+    .await
 }

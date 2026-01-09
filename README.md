@@ -77,3 +77,21 @@ Server listens on `0.0.0.0:<PORT>`.
 - Demo client `demo-client` / `demo-secret` is seeded automatically.
 - SQLite DB file (`oauth.db`) is created in the project directory by default.
 - Extend by adding refresh tokens, more grant types, or richer user/session handling.
+https://dash.cloudflare.com/fb0013caf2280071f85fc063696e87a7/turnstile/add
+https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/
+<link rel="preconnect" href="https://challenges.cloudflare.com">
+<script
+  src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+  async
+  defer
+></script>
+<div class="cf-turnstile" data-sitekey="<YOUR-SITE-KEY>"></div>
+<div class="cf-turnstile" data-sitekey="<YOUR-SITE-KEY>"></div>
+<div
+  class="cf-turnstile"
+  data-sitekey="<YOUR-SITE-KEY>"
+  data-theme="light"
+  data-size="normal"
+  data-callback="onSuccess"
+></div>
+
