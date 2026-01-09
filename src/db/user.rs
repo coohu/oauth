@@ -54,10 +54,7 @@ pub async fn get_user_by_username(
         .await
 }
 
-pub async fn get_user_by_id(
-    pool: &AnyPool,
-    id: &str,
-) -> Result<Option<User>, sqlx::Error> {
+pub async fn get_user_by_id( pool: &AnyPool, id: &str) -> Result<Option<User>, sqlx::Error> {
     sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?")
         .bind(id)
         .fetch_optional(pool)

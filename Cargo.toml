@@ -22,3 +22,6 @@ time = { version = "0.3", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 reqwest = { version = "0.12", features = ["json"] }
 hex = "0.4"
+base64 = "0.22"
+rand = "0.8"
+urlencoding = "2.1"

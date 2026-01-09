@@ -1198,11 +1198,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base64 0.22.1",
  "bcrypt",
  "chrono",
  "dotenvy",
  "hex",
  "hyper",
+ "rand",
  "reqwest",
  "serde",
  "serde_json",
@@ -1213,6 +1215,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "urlencoding",
  "uuid",
 ]
 

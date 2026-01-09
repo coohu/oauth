@@ -5,3 +5,17 @@ Content-Type: application/json
   "username": "t",
   "password": "v"
 }
+###
+GET http://100.64.0.1:8084/health
+Content-Type: application/json
+###
+POST http://100.64.0.1:8084/auth/login
+Content-Type: application/json
+
+{
+  "username": "t",
+  "password": "v"
+}
+###
+GET http://100.64.0.1:8084/auth/me
+Authorization: Bearer 221ddfab-6a15-4e8d-8961-54f8880c0e75

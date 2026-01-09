@@ -8,6 +8,7 @@ mod middleware;
 mod config;
 mod db;
 mod error;
+mod oauth_error;
 mod handlers;
 mod router;
 mod state;
@@ -38,4 +39,3 @@ async fn main() -> Result<()> {
         .await?;
     Ok(())
 }
-

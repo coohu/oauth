@@ -95,3 +95,18 @@ https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/
   data-callback="onSuccess"
 ></div>
 
+sequenceDiagram
+  participant U as 用户(浏览器/App)
+  participant C as 客户端应用
+  participant A as 授权服务器
+  participant R as 资源服务器/API
+
+  C->>C: 生成 code_verifier, code_challenge
+  C->>U: 构造授权链接并跳转<br>?client_id=...&response_type=code<br>&code_challenge=...&state=...
+  U->>A: 打开授权页面, 登录并授权
+  A->>U: 携带授权码回调<br>?code=xxx&state=yyy
+  U->>C: 重定向回回调地址(带着 code)
+  C->>A: 用授权码换取令牌<br>?grant_type=authorization_code<br>&code=xxx&code_verifier=...
+  A->>C: 返回 access_token (可选 refresh_token)
+  C->>R: 调用 API, 在 Header 携带 access_token
+  R->>C: 返回资源数据

@@ -23,7 +23,8 @@ pub fn build_router(state: AppState) -> Router {
             admin_auth,
         ))
         .route("/health", get(handlers::health::health))
-        .route("/oauth/token", post(handlers::oauth::issue_token))
+        .route("/oauth/authorize", get(handlers::oauth::authorize))
+        .route("/oauth/token", post(handlers::oauth::token))
         .route("/auth/register", post(handlers::auth::register))
         .route("/auth/login", post(handlers::auth::login))
         .route("/auth/me", get(handlers::auth::me))

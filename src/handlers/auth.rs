@@ -24,10 +24,15 @@ pub async fn register(
     headers: axum::http::HeaderMap,
     Json(payload): Json<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, AppError> {
-    if payload.username.is_empty() || payload.password.is_empty() {
-        return Err(AppError::BadRequest("Username and password are required".into()));
-    }
+    let username_len = payload.username.chars().count();
+    let password_len = payload.password.chars().count();
 
+    if username_len < 4 {
+        return Err(AppError::BadRequest("Username must be at least 4 characters long".into()));
+    }
+    if password_len < 6 {
+        return Err(AppError::BadRequest("Password must be at least 6 characters long".into()));
+    }
     let ip = headers.get("x-forwarded-for")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("unknown");

@@ -3,6 +3,8 @@ pub mod client;
 pub mod token;
 pub mod user;
 pub mod rate_limit;
+pub mod authorization_code;
+pub mod refresh_token;
 
 #[derive(Clone)]
 pub struct Database {
@@ -25,14 +27,16 @@ impl Database {
         token::init(&self.pool).await?;
         user::init(&self.pool).await?;
         rate_limit::init(&self.pool).await?;
+        authorization_code::init(&self.pool).await?;
+        refresh_token::init(&self.pool).await?;
         Ok(())
     }
 
     pub async fn verify_client(
         &self,
         id: &str,
-        secret: &str,
-    ) -> Result<(), crate::error::AppError> {
+        secret: Option<&str>,
+    ) -> Result<String, crate::error::AppError> {
         client::verify_client(&self.pool, id, secret).await
     }
 
@@ -60,10 +64,13 @@ impl Database {
     pub async fn create_client(
         &self,
         id: &str,
-        secret: &str,
+        secret: Option<&str>,
+        client_type: &str,
+        redirect_uris: &str,
+        allowed_scopes: &str,
         cost: u32,
     ) -> Result<(), crate::error::AppError> {
-        client::create_client(&self.pool, id, secret, cost)
+        client::create_client(&self.pool, id, secret, client_type, redirect_uris, allowed_scopes, cost)
             .await
             .map_err(crate::error::AppError::Database)
     }
@@ -80,12 +87,121 @@ impl Database {
     pub async fn update_client_secret(
         &self,
         id: &str,
-        secret: &str,
+        secret: Option<&str>,
         cost: u32,
     ) -> Result<u64, crate::error::AppError> {
         client::update_client_secret(&self.pool, id, secret, cost)
             .await
             .map_err(crate::error::AppError::Database)
+    }
+
+    pub async fn get_client(
+        &self,
+        client_id: &str,
+    ) -> Result<Option<client::ClientInfo>, crate::error::AppError> {
+        client::get_client(&self.pool, client_id)
+            .await
+            .map_err(crate::error::AppError::Database)
+    }
+
+    pub async fn validate_redirect_uri(
+        &self,
+        client_id: &str,
+        redirect_uri: &str,
+    ) -> Result<bool, crate::error::AppError> {
+        client::validate_redirect_uri(&self.pool, client_id, redirect_uri)
+            .await
+            .map_err(crate::error::AppError::Database)
+    }
+
+    pub async fn validate_scope(
+        &self,
+        client_id: &str,
+        scope: &str,
+    ) -> Result<bool, crate::error::AppError> {
+        client::validate_scope(&self.pool, client_id, scope)
+            .await
+            .map_err(crate::error::AppError::Database)
+    }
+
+    // Authorization code methods
+    pub async fn create_authorization_code(
+        &self,
+        code: &str,
+        client_id: &str,
+        redirect_uri: &str,
+        user_id: &str,
+        scope: &str,
+        code_challenge: &str,
+        code_challenge_method: &str,
+        expires_at: i64,
+    ) -> Result<(), crate::error::AppError> {
+        authorization_code::create_authorization_code(
+            &self.pool,
+            code,
+            client_id,
+            redirect_uri,
+            user_id,
+            scope,
+            code_challenge,
+            code_challenge_method,
+            expires_at,
+        )
+        .await
+        .map_err(crate::error::AppError::Database)
+    }
+
+    pub async fn get_and_mark_authorization_code_used(
+        &self,
+        code: &str,
+    ) -> Result<Option<authorization_code::AuthorizationCode>, crate::error::AppError> {
+        authorization_code::get_and_mark_used(&self.pool, code)
+            .await
+            .map_err(crate::error::AppError::Database)
+    }
+
+    // Refresh token methods
+    pub async fn create_refresh_token(
+        &self,
+        token_hash: &str,
+        client_id: &str,
+        user_id: &str,
+        scope: &str,
+        expires_at: i64,
+    ) -> Result<(), crate::error::AppError> {
+        refresh_token::create_refresh_token(&self.pool, token_hash, client_id, user_id, scope, expires_at)
+            .await
+            .map_err(crate::error::AppError::Database)
+    }
+
+    pub async fn get_refresh_token(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<refresh_token::RefreshToken>, crate::error::AppError> {
+        refresh_token::get_refresh_token(&self.pool, token_hash)
+            .await
+            .map_err(crate::error::AppError::Database)
+    }
+
+    #[allow(dead_code)]
+    pub async fn revoke_refresh_token(
+        &self,
+        token_hash: &str,
+    ) -> Result<u64, crate::error::AppError> {
+        refresh_token::revoke_refresh_token(&self.pool, token_hash)
+            .await
+            .map_err(crate::error::AppError::Database)
+    }
+
+    #[allow(dead_code)]
+    pub async fn cleanup_expired_tokens(&self) -> Result<(), crate::error::AppError> {
+        authorization_code::cleanup_expired(&self.pool)
+            .await
+            .map_err(crate::error::AppError::Database)?;
+        refresh_token::cleanup_expired(&self.pool)
+            .await
+            .map_err(crate::error::AppError::Database)?;
+        Ok(())
     }
 
     pub async fn create_user(
