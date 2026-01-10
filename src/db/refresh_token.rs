@@ -11,25 +11,6 @@ pub struct RefreshToken {
     pub revoked: bool,
 }
 
-pub async fn init(pool: &AnyPool) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS refresh_tokens (
-            token_hash TEXT PRIMARY KEY,
-            client_id TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            scope TEXT NOT NULL,
-            expires_at INTEGER NOT NULL,
-            revoked INTEGER NOT NULL DEFAULT 0,
-            created_at INTEGER NOT NULL
-        )
-        "#,
-    )
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
 pub async fn create_refresh_token(
     pool: &AnyPool,
     token_hash: &str,

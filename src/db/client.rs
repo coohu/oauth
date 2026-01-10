@@ -2,24 +2,6 @@ use bcrypt::{hash, verify as bcrypt_verify};
 use sqlx::{Row, AnyPool};
 use crate::error::AppError;
 
-pub async fn init(pool: &AnyPool) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS oauth_client (
-            id TEXT PRIMARY KEY,
-            secret_hash TEXT,
-            client_type TEXT NOT NULL,
-            redirect_uris TEXT NOT NULL,
-            allowed_scopes TEXT NOT NULL,
-            created_at INTEGER NOT NULL
-        )
-        "#,
-    )
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
 pub async fn create_client(
     pool: &AnyPool,
     client_id: &str,
@@ -70,7 +52,7 @@ pub async fn verify_client(pool: &AnyPool, id: &str, secret: Option<&str>) -> Re
         }
     };
 
-    let secret_hash: Option<String> = row.get("secret_hash");
+    let secret_hash: Option<String> = row.try_get("secret_hash").unwrap_or(None);
     let client_type: String = row.get("client_type");
 
     // Public clients don't have secrets

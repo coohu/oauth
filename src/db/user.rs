@@ -9,22 +9,6 @@ pub struct User {
     pub created_at: i64,
 }
 
-pub async fn init(pool: &AnyPool) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
-            created_at INTEGER NOT NULL
-        )
-        "#,
-    )
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
 pub async fn create_user(
     pool: &AnyPool,
     id: &str,

@@ -1,20 +1,5 @@
 use sqlx::AnyPool;
 
-pub async fn init(pool: &AnyPool) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS rate_limits (
-            key TEXT PRIMARY KEY,
-            count INTEGER NOT NULL,
-            last_seen INTEGER NOT NULL
-        )
-        "#,
-    )
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
 pub async fn check_rate_limit(
     pool: &AnyPool,
     key: &str,

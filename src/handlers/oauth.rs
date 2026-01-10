@@ -4,6 +4,7 @@ use axum::{
     Form, Json,
 };
 use serde::{Deserialize, Serialize};
+use tracing::{info, error};
 use crate::{oauth_error::OAuthError, state::AppState, util};
 
 #[derive(Deserialize)]
@@ -61,7 +62,7 @@ pub async fn authorize(
     let scope = params.scope.as_deref().unwrap_or("default");
     let scope_valid = state.db.validate_scope(&params.client_id, scope).await
         .map_err(|_| OAuthError::ServerError
-            .to_redirect(&params.redirect_uri, params.state.as_deref()))?;
+        .to_redirect(&params.redirect_uri, params.state.as_deref()))?;
     
     if !scope_valid {
         return Err(OAuthError::InvalidScope
@@ -71,7 +72,7 @@ pub async fn authorize(
     // Generate authorization code
     let code = util::generate_secure_token(32);
     let expires_at = chrono::Utc::now().timestamp() + 600; // 10 minutes
-
+    info!("authorize, client_id:{},user_id:{}",&params.client_id, &params.user_id);
     // Store authorization code
     state.db.create_authorization_code(
         &code,
@@ -83,8 +84,11 @@ pub async fn authorize(
         &params.code_challenge_method,
         expires_at,
     ).await
+    .inspect_err(|e| {
+        error!("Database error occurred while creating auth code: {}", e);
+    })
     .map_err(|_| OAuthError::ServerError
-        .to_redirect(&params.redirect_uri, params.state.as_deref()))?;
+    .to_redirect(&params.redirect_uri, params.state.as_deref()))?;
 
     // Build redirect URL with authorization code
     let mut redirect_url = params.redirect_uri.clone();
@@ -93,11 +97,10 @@ pub async fn authorize(
     if let Some(state_param) = params.state {
         redirect_url.push_str(&format!("&state={}", urlencoding::encode(&state_param)));
     }
-
     Ok(Redirect::to(&redirect_url).into_response())
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize,Debug)]
 pub struct TokenRequest {
     pub grant_type: String,
     pub client_id: String,
@@ -147,9 +150,10 @@ async fn handle_authorization_code_grant(
         .ok_or_else(|| OAuthError::InvalidRequest("redirect_uri is required".to_string()))?;
     let code_verifier = req.code_verifier.as_ref()
         .ok_or_else(|| OAuthError::InvalidRequest("code_verifier is required (PKCE)".to_string()))?;
-
+    // info!("-------------------{:?}", req);
     // Retrieve and mark authorization code as used
     let auth_code = state.db.get_and_mark_authorization_code_used(code).await
+        .inspect_err(|e|{error!("get_and_mark_authorization_code_used {}",e)})
         .map_err(|_| OAuthError::ServerError)?
         .ok_or_else(|| OAuthError::InvalidGrant("Invalid or expired authorization code".to_string()))?;
 
@@ -171,18 +175,22 @@ async fn handle_authorization_code_grant(
     // Authenticate client (public clients don't need secret)
     let _client_type = state.db.verify_client(&req.client_id, req.client_secret.as_deref()).await
         .map_err(|_| OAuthError::InvalidClient)?;
-
+    
     // Generate access token
     let access_token = util::generate_secure_token(32);
     let access_token_hash = util::hash_token(&access_token);
     let access_expires_at = chrono::Utc::now().timestamp() + state.config.token_ttl_secs;
 
+    
     state.db.issue_token(
         &access_token_hash,
         &req.client_id,
         access_expires_at,
         Some(&auth_code.user_id),
-    ).await.map_err(|_| OAuthError::ServerError)?;
+    ).await.inspect_err(|e|{
+        error!("Database error occurred while issue_token: {}", e);
+    })
+    .map_err(|_| OAuthError::ServerError)?;
 
     // Generate refresh token
     let refresh_token = util::generate_secure_token(32);
@@ -195,7 +203,9 @@ async fn handle_authorization_code_grant(
         &auth_code.user_id,
         &auth_code.scope,
         refresh_expires_at,
-    ).await.map_err(|_| OAuthError::ServerError)?;
+    ).await.inspect_err(|e|{
+        error!("Database error occurred while create_refresh_token: {}", e);
+    }).map_err(|_| OAuthError::ServerError)?;
 
     Ok(Json(TokenResponse {
         access_token,

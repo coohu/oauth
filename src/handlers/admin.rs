@@ -1,6 +1,7 @@
 use axum::{extract::{Path, State}, Json, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use crate::{error::AppError, state::AppState};
+use tracing::info;
 
 #[derive(Deserialize)]
 pub struct CreateClientReq {
@@ -35,7 +36,7 @@ pub async fn create_client(
     if req.client_type == "public" && req.client_secret.is_some() {
         return Err(AppError::BadRequest("public clients must not have a client_secret".into()));
     }
-
+    info!("client_id :{}", &req.client_id);
     state.db.create_client(
         &req.client_id,
         req.client_secret.as_deref(),

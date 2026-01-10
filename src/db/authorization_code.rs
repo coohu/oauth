@@ -1,5 +1,6 @@
 use sqlx::AnyPool;
 use serde::{Deserialize, Serialize};
+use tracing::error;
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AuthorizationCode {
@@ -11,29 +12,7 @@ pub struct AuthorizationCode {
     pub code_challenge: String,
     pub code_challenge_method: String,
     pub expires_at: i64,
-    pub used: bool,
-}
-
-pub async fn init(pool: &AnyPool) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS authorization_codes (
-            code TEXT PRIMARY KEY,
-            client_id TEXT NOT NULL,
-            redirect_uri TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            scope TEXT NOT NULL,
-            code_challenge TEXT NOT NULL,
-            code_challenge_method TEXT NOT NULL,
-            expires_at INTEGER NOT NULL,
-            used INTEGER NOT NULL DEFAULT 0,
-            created_at INTEGER NOT NULL
-        )
-        "#,
-    )
-    .execute(pool)
-    .await?;
-    Ok(())
+    pub used: i16,
 }
 
 pub async fn create_authorization_code(
@@ -65,7 +44,10 @@ pub async fn create_authorization_code(
     .bind(expires_at)
     .bind(now)
     .execute(pool)
-    .await?;
+    .await
+    .inspect_err(|e| {
+        error!("Database error occurred while creating auth code: {}", e);
+    })?;
     Ok(())
 }
 
@@ -84,7 +66,7 @@ pub async fn get_and_mark_used(
         .bind(code)
         .bind(now)
         .fetch_optional(&mut *tx)
-        .await?;
+        .await.inspect_err(|e|{error!("get_and_mark_used(){}",e)})?;
     
     if let Some(ref ac) = auth_code {
         // Mark as used

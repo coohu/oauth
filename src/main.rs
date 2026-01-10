@@ -1,6 +1,6 @@
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use crate::{config::Config, router::build_router, state::AppState};
-use tokio::{signal};
+use tokio::{signal,net::TcpListener};
 use anyhow::Result;
 use tracing::info;
 
@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
     let state = AppState { config, db };
     let app = build_router(state.clone());
 
-    let listener = tokio::net::TcpListener::bind(state.config.bind).await?;
+    let listener = TcpListener::bind(state.config.bind).await?;
     info!("Listening on {}", state.config.bind);
 
     axum::serve(listener, app)

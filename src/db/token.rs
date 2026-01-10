@@ -1,21 +1,5 @@
 use sqlx::AnyPool;
 
-pub async fn init(pool: &AnyPool) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS access_token (
-            token_hash TEXT PRIMARY KEY,
-            client_id TEXT NOT NULL,
-            expires_at INTEGER NOT NULL,
-            user_id TEXT
-        )
-        "#,
-    )
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
 pub async fn insert_access_token(
     pool: &AnyPool,
     token_hash: &str,

@@ -23,12 +23,9 @@ impl Database {
     }
 
     pub async fn init(&self) -> Result<(), sqlx::Error> {
-        client::init(&self.pool).await?;
-        token::init(&self.pool).await?;
-        user::init(&self.pool).await?;
-        rate_limit::init(&self.pool).await?;
-        authorization_code::init(&self.pool).await?;
-        refresh_token::init(&self.pool).await?;
+        sqlx::migrate!("./migrations")
+            .run(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -146,8 +143,7 @@ impl Database {
             code_challenge,
             code_challenge_method,
             expires_at,
-        )
-        .await
+        ).await
         .map_err(crate::error::AppError::Database)
     }
 
