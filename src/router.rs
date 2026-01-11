@@ -3,6 +3,8 @@ use axum::{
     middleware as axum_middleware,
     Router,
 };
+use hyper::Method;
+use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
     handlers,
@@ -11,6 +13,11 @@ use crate::{
 };
 
 pub fn build_router(state: AppState) -> Router {
+    let cors = CorsLayer::new()
+        .allow_origin(Any) 
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+        .allow_headers(Any);
+
     Router::new()
         .route(
             "/admin/client/:id",
@@ -28,5 +35,6 @@ pub fn build_router(state: AppState) -> Router {
         .route("/auth/register", post(handlers::auth::register))
         .route("/auth/login", post(handlers::auth::login))
         .route("/auth/me", get(handlers::auth::me))
+        .layer(cors)
         .with_state(state)
 }

@@ -4,7 +4,7 @@ use axum::{
     Form, Json,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{info, error};
+use tracing::{ error};
 use crate::{oauth_error::OAuthError, state::AppState, util};
 
 #[derive(Deserialize)]
@@ -43,22 +43,18 @@ pub async fn authorize(
             "code_challenge_method must be S256 or plain".to_string()
         ).to_redirect(&params.redirect_uri, params.state.as_deref()));
     }
-
-    // Validate client exists
-    let _client = state.db.get_client(&params.client_id).await
-        .map_err(|_| OAuthError::ServerError.to_redirect(&params.redirect_uri, params.state.as_deref()))?
-        .ok_or_else(|| OAuthError::InvalidClient.to_redirect(&params.redirect_uri, params.state.as_deref()))?;
-
-    // Validate redirect_uri
-    let redirect_valid = state.db.validate_redirect_uri(&params.client_id, &params.redirect_uri).await
-        .map_err(|_| OAuthError::ServerError.to_redirect(&params.redirect_uri, params.state.as_deref()))?;
     
+    let _client = state.db.get_client(&params.client_id).await
+        .map_err(|_| OAuthError::ServerError.into_response())? // 数据库异常返回 Body
+        .ok_or_else(|| OAuthError::InvalidClient.into_response())?; // ClientID 不存在返回 Body
+
+    let redirect_valid = state.db.validate_redirect_uri(&params.client_id, &params.redirect_uri).await
+        .map_err(|_| OAuthError::ServerError.into_response())?;
+        
     if !redirect_valid {
-        // For invalid redirect_uri, we MUST NOT redirect, just return error
         return Err(OAuthError::InvalidRequest("Invalid redirect_uri".to_string()).into_response());
     }
-
-    // Validate scope
+    
     let scope = params.scope.as_deref().unwrap_or("default");
     let scope_valid = state.db.validate_scope(&params.client_id, scope).await
         .map_err(|_| OAuthError::ServerError
@@ -72,8 +68,7 @@ pub async fn authorize(
     // Generate authorization code
     let code = util::generate_secure_token(32);
     let expires_at = chrono::Utc::now().timestamp() + 600; // 10 minutes
-    info!("authorize, client_id:{},user_id:{}",&params.client_id, &params.user_id);
-    // Store authorization code
+
     state.db.create_authorization_code(
         &code,
         &params.client_id,

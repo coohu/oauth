@@ -30,3 +30,16 @@ Content-Type: application/json
   "redirect_uris":"http://100.64.0.1:8082/auth",
   "allowed_scopes":"w+"
 }
+###
+GET http://100.64.0.1:8084/oauth/authorize
+Content-Type: application/json
+
+{
+  "client_id":"2",
+  "redirect_uri":"http://100.64.0.1:8082/auth",
+  "scope":"w+",
+  "code_challenge":"",
+  "response_type": "code",
+  "user_id":"e76fa28b-b3da-4ef1-bb8a-150151af752e",
+  "code_challenge_method": "S256"
+}

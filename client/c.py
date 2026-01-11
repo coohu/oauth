@@ -4,12 +4,12 @@ import os
 import secrets
 import requests
 import webbrowser
-from urllib.parse import urlparse, parse_qs, urlencode
+from urllib.parse import urlparse, parse_qs, urlencode,unquote
 
 
 # --- 1. 配置参数 (根据你的服务修改) ---
 CLIENT_ID = "1"
-REDIRECT_URI = "http://100.64.0.1:8082/auth"  # 确保在服务端已注册
+REDIRECT_URI = "http://100.64.0.1:8082/auth/"  # 确保在服务端已注册
 AUTH_ENDPOINT = "http://100.64.0.1:8084/oauth/authorize"
 TOKEN_ENDPOINT = "http://100.64.0.1:8084/oauth/token"
 SCOPE = "w+"
@@ -100,7 +100,6 @@ def test_automated_oauth_21():
     # 因为我们不需要真的跳转到 localhost，只需要拿到 Location 里的 code
     print("发送授权请求...")
     response = client.get(AUTH_ENDPOINT, params=auth_params, allow_redirects=False)
-    
     # 5. 从重定向 Header 中提取 Authorization Code
     # 正常流程会返回 302 Redirect 到 REDIRECT_URI?code=xxx
     location = response.headers.get("Location")
@@ -124,6 +123,8 @@ def test_automated_oauth_21():
         }
         token_res = requests.post(TOKEN_ENDPOINT, data=token_data)
         print("Token 结果:", token_res.json())
+    else:
+        print("location: ", query)
 
 if __name__ == "__main__":
     test_automated_oauth_21()
