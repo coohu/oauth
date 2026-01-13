@@ -13,12 +13,41 @@ use sqlx::{
     sqlite::{SqlitePoolOptions},
     FromRow, Pool, Postgres, Sqlite,
 };
-use std::{env, net::SocketAddr};
+use std::{env, net::SocketAddr, time::Duration};
 use uuid::Uuid;
+use moka::future::Cache;
+
+#[derive(Clone)]
+struct CodeCache {
+    cache: Cache<String, AuthCode>,
+}
+
+impl CodeCache {
+    fn new() -> Self {
+        Self {
+            cache: Cache::builder()
+                .time_to_live(Duration::from_secs(600))
+                .build(),
+        }
+    }
+
+    async fn get(&self, key: &str) -> Option<AuthCode> {
+        self.cache.get(key).await
+    }
+
+    async fn insert(&self, key: String, value: AuthCode) {
+        self.cache.insert(key, value).await;
+    }
+
+    async fn remove(&self, key: &str) -> Option<AuthCode> {
+        self.cache.remove(key).await
+    }
+}
 
 #[derive(Clone)]
 struct AppState {
     db: Database,
+    cache: CodeCache,
 }
 
 #[derive(Clone)]
@@ -64,7 +93,10 @@ impl AppState {
             Database::Sqlite(pool)
         };
 
-        Ok(Self { db })
+        let cache = CodeCache::new();
+        load_codes_into_cache(&db, &cache).await?;
+
+        Ok(Self { db, cache })
     }
 }
 
@@ -104,7 +136,7 @@ struct User { id: String, username: String, password_hash: String }
 struct OAuthClient { client_id: String, client_secret: String, redirect_uri: String }
 
 #[derive(Clone, Serialize, Deserialize, FromRow)]
-struct AuthCode { code: String, client_id: String, redirect_uri: String, user_id: String, scope: String }
+struct AuthCode { code: String, client_id: String, redirect_uri: String, user_id: String, scope: String, expires_at: i64 }
 
 #[derive(Clone, Serialize, Deserialize, FromRow)]
 struct AccessToken { access_token: String, client_id: String, user_id: String, scope: String, expires_in: i64 }
@@ -155,6 +187,10 @@ struct TokenResponse {
 
 #[tokio::main]
 async fn main() -> Result<(), AppError> {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+
     let state = AppState::new().await?;
 
     let app = Router::new()
@@ -276,9 +312,18 @@ async fn authorize(State(state): State<AppState>, Json(payload): Json<AuthorizeP
         redirect_uri: payload.redirect_uri,
         user_id: payload.user_id,
         scope: payload.scope.unwrap_or_else(|| "default".into()),
+        expires_at: chrono::Utc::now().timestamp() + 600, // 10 minutes
     };
 
-    store_auth_code(&state, &code).await?;
+    state.cache.insert(code.code.clone(), code.clone()).await;
+    let db_state = state.clone();
+    let code_for_db = code.clone();
+    tokio::spawn(async move {
+        if let Err(e) = store_auth_code(&db_state, &code_for_db).await {
+            tracing::error!("Failed to store auth code in db: {:?}", e);
+        }
+    });
+
     Ok(Json(AuthorizeResponse { code: code.code, state: payload.state.unwrap_or_default() }))
 }
 
@@ -354,13 +399,13 @@ async fn get_client(state: &AppState, client_id: &str) -> Result<Option<OAuthCli
 async fn store_auth_code(state: &AppState, code: &AuthCode) -> Result<(), AppError> {
     match &state.db {
         Database::Sqlite(pool) => {
-            sqlx::query("INSERT INTO auth_codes (code, client_id, redirect_uri, user_id, scope) VALUES (?, ?, ?, ?, ?)")
-            .bind(&code.code).bind(&code.client_id).bind(&code.redirect_uri).bind(&code.user_id).bind(&code.scope)
+            sqlx::query("INSERT INTO auth_codes (code, client_id, redirect_uri, user_id, scope, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
+            .bind(&code.code).bind(&code.client_id).bind(&code.redirect_uri).bind(&code.user_id).bind(&code.scope).bind(code.expires_at)
             .execute(pool).await?;
         },
         Database::Postgres(pool) => {
-            sqlx::query("INSERT INTO auth_codes (code, client_id, redirect_uri, user_id, scope) VALUES ($1, $2, $3, $4, $5)")
-            .bind(&code.code).bind(&code.client_id).bind(&code.redirect_uri).bind(&code.user_id).bind(&code.scope)
+            sqlx::query("INSERT INTO auth_codes (code, client_id, redirect_uri, user_id, scope, expires_at) VALUES ($1, $2, $3, $4, $5, $6)")
+            .bind(&code.code).bind(&code.client_id).bind(&code.redirect_uri).bind(&code.user_id).bind(&code.scope).bind(code.expires_at)
             .execute(pool).await?;
         }
     }
@@ -368,11 +413,31 @@ async fn store_auth_code(state: &AppState, code: &AuthCode) -> Result<(), AppErr
 }
 
 async fn consume_auth_code(state: &AppState, value: &str) -> Result<Option<AuthCode>, AppError> {
-    // 这是一个事务操作,为了保证原子性
+    if let Some(code) = state.cache.remove(value).await {
+        let db_state = state.clone();
+        let value = value.to_string();
+        tokio::spawn(async move {
+            let _ = delete_auth_code(&db_state, &value).await;
+        });
+        return Ok(Some(code));
+    }
+
+    // Fallback to DB for codes not in cache (e.g. after restart)
+    let code = delete_auth_code(state, value).await?;
+
+    if let Some(c) = &code {
+        if c.expires_at < chrono::Utc::now().timestamp() {
+            return Ok(None);
+        }
+    }
+    Ok(code)
+}
+
+async fn delete_auth_code(state: &AppState, value: &str) -> Result<Option<AuthCode>, AppError> {
     match &state.db {
         Database::Sqlite(pool) => {
             let mut tx = pool.begin().await?;
-            let code = sqlx::query_as::<_, AuthCode>("SELECT * FROM auth_codes WHERE code = ?").bind(value).fetch_optional(&mut *tx).await?;
+            let code: Option<AuthCode> = sqlx::query_as("SELECT * FROM auth_codes WHERE code = ?").bind(value).fetch_optional(&mut *tx).await?;
             if code.is_some() {
                 sqlx::query("DELETE FROM auth_codes WHERE code = ?").bind(value).execute(&mut *tx).await?;
             }
@@ -381,7 +446,7 @@ async fn consume_auth_code(state: &AppState, value: &str) -> Result<Option<AuthC
         }
         Database::Postgres(pool) => {
             let mut tx = pool.begin().await?;
-            let code = sqlx::query_as::<_, AuthCode>("SELECT * FROM auth_codes WHERE code = $1").bind(value).fetch_optional(&mut *tx).await?;
+            let code: Option<AuthCode> = sqlx::query_as("SELECT * FROM auth_codes WHERE code = $1").bind(value).fetch_optional(&mut *tx).await?;
             if code.is_some() {
                 sqlx::query("DELETE FROM auth_codes WHERE code = $1").bind(value).execute(&mut *tx).await?;
             }
@@ -414,10 +479,34 @@ async fn get_access_token(state: &AppState, token: &str) -> Result<Option<Access
     }
 }
 
+async fn load_codes_into_cache(db: &Database, cache: &CodeCache) -> Result<(), AppError> {
+    let now = chrono::Utc::now().timestamp();
+    let codes: Vec<AuthCode> = match db {
+        Database::Sqlite(pool) => {
+            sqlx::query_as("SELECT * FROM auth_codes WHERE expires_at > ?")
+                .bind(now)
+                .fetch_all(pool)
+                .await?
+        }
+        Database::Postgres(pool) => {
+            sqlx::query_as("SELECT * FROM auth_codes WHERE expires_at > $1")
+                .bind(now)
+                .fetch_all(pool)
+                .await?
+        }
+    };
+
+    for code in codes {
+        cache.insert(code.code.clone(), code).await;
+    }
+
+    Ok(())
+}
+
 async fn init_sqlite(pool: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
     sqlx::query("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)").execute(pool).await?;
     sqlx::query("CREATE TABLE IF NOT EXISTS clients (client_id TEXT PRIMARY KEY, client_secret TEXT NOT NULL, redirect_uri TEXT NOT NULL)").execute(pool).await?;
-    sqlx::query("CREATE TABLE IF NOT EXISTS auth_codes (code TEXT PRIMARY KEY, client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL, user_id TEXT NOT NULL, scope TEXT NOT NULL)").execute(pool).await?;
+    sqlx::query("CREATE TABLE IF NOT EXISTS auth_codes (code TEXT PRIMARY KEY, client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL, user_id TEXT NOT NULL, scope TEXT NOT NULL, expires_at INTEGER NOT NULL)").execute(pool).await?;
     sqlx::query("CREATE TABLE IF NOT EXISTS access_tokens (access_token TEXT PRIMARY KEY, client_id TEXT NOT NULL, user_id TEXT NOT NULL, scope TEXT NOT NULL, expires_in INTEGER NOT NULL)").execute(pool).await?;
     sqlx::query("INSERT OR IGNORE INTO clients (client_id, client_secret, redirect_uri) VALUES ('demo-client', 'demo-secret', 'http://localhost:8081/callback')").execute(pool).await?;
     Ok(())
@@ -426,7 +515,7 @@ async fn init_sqlite(pool: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
 async fn init_postgres(pool: &Pool<Postgres>) -> Result<(), sqlx::Error> {
     sqlx::query("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)").execute(pool).await?;
     sqlx::query("CREATE TABLE IF NOT EXISTS clients (client_id TEXT PRIMARY KEY, client_secret TEXT NOT NULL, redirect_uri TEXT NOT NULL)").execute(pool).await?;
-    sqlx::query("CREATE TABLE IF NOT EXISTS auth_codes (code TEXT PRIMARY KEY, client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL, user_id TEXT NOT NULL, scope TEXT NOT NULL)").execute(pool).await?;
+    sqlx::query("CREATE TABLE IF NOT EXISTS auth_codes (code TEXT PRIMARY KEY, client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL, user_id TEXT NOT NULL, scope TEXT NOT NULL, expires_at BIGINT NOT NULL)").execute(pool).await?;
     sqlx::query("CREATE TABLE IF NOT EXISTS access_tokens (access_token TEXT PRIMARY KEY, client_id TEXT NOT NULL, user_id TEXT NOT NULL, scope TEXT NOT NULL, expires_in INTEGER NOT NULL)").execute(pool).await?;
     sqlx::query("INSERT INTO clients (client_id, client_secret, redirect_uri) VALUES ('demo-client', 'demo-secret', 'http://localhost:8081/callback') ON CONFLICT (client_id) DO NOTHING").execute(pool).await?;
     Ok(())
