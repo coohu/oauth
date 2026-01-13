@@ -2,7 +2,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use crate::{config::Config, router::build_router, state::AppState};
 use tokio::{signal,net::TcpListener};
 use anyhow::Result;
-use tracing::info;
+use tracing::{error, info};
 
 mod cache;
 mod middleware;
@@ -30,6 +30,7 @@ async fn main() -> Result<()> {
     // Load valid authorization codes from database into cache
     match db.load_valid_authorization_codes().await {
         Ok(codes) => {
+            let count = codes.len();
             let cached_codes: Vec<cache::authorization_code_cache::CachedAuthorizationCode> = codes
                 .into_iter()
                 .map(|code| cache::authorization_code_cache::CachedAuthorizationCode {
@@ -43,12 +44,11 @@ async fn main() -> Result<()> {
                     expires_at: code.expires_at,
                 })
                 .collect();
-            let count = cached_codes.len();
             auth_code_cache.load_codes(cached_codes).await;
             info!("Loaded {} valid authorization codes into cache", count);
         }
         Err(e) => {
-            tracing::error!("Failed to load authorization codes from database: {}", e);
+            error!("Failed to load authorization codes from database: {}", e);
             tracing::warn!("Starting with empty authorization code cache");
         }
     }

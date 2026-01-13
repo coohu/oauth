@@ -37,14 +37,14 @@ impl AuthorizationCodeCache {
         let now = chrono::Utc::now().timestamp();
         let mut cache = self.inner.write().await;
         
-        if let Some(auth_code) = cache.get(code) {
-            if auth_code.expires_at > now {
-                return cache.remove(code);
-            } else {
-                cache.remove(code);
-            }
+        let auth_code = cache.get(code)?;
+        
+        if auth_code.expires_at > now {
+            cache.remove(code)
+        } else {
+            cache.remove(code);
+            None
         }
-        None
     }
 
     pub async fn cleanup_expired(&self) {

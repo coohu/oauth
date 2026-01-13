@@ -66,7 +66,10 @@ pub async fn get_and_mark_used(
         .bind(code)
         .bind(now)
         .fetch_optional(&mut *tx)
-        .await.inspect_err(|e|{error!("get_and_mark_used(){}",e)})?;
+        .await
+        .inspect_err(|e| {
+            error!("Database error in get_and_mark_used: {}", e);
+        })?;
     
     if let Some(ref ac) = auth_code {
         // Mark as used
