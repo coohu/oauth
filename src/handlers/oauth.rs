@@ -69,21 +69,47 @@ pub async fn authorize(
     let code = util::generate_secure_token(32);
     let expires_at = chrono::Utc::now().timestamp() + 600; // 10 minutes
 
-    state.db.create_authorization_code(
-        &code,
-        &params.client_id,
-        &params.redirect_uri,
-        &params.user_id,
-        scope,
-        &params.code_challenge,
-        &params.code_challenge_method,
+    // Create cached authorization code
+    let cached_code = crate::cache::authorization_code_cache::CachedAuthorizationCode {
+        code: code.clone(),
+        client_id: params.client_id.clone(),
+        redirect_uri: params.redirect_uri.clone(),
+        user_id: params.user_id.clone(),
+        scope: scope.to_string(),
+        code_challenge: params.code_challenge.clone(),
+        code_challenge_method: params.code_challenge_method.clone(),
         expires_at,
-    ).await
-    .inspect_err(|e| {
-        error!("Database error occurred while creating auth code: {}", e);
-    })
-    .map_err(|_| OAuthError::ServerError
-    .to_redirect(&params.redirect_uri, params.state.as_deref()))?;
+    };
+
+    // Save to cache immediately (synchronous)
+    state.auth_code_cache.insert(cached_code).await;
+
+    // Save to database asynchronously (non-blocking)
+    let db = state.db.clone();
+    let code_for_db = code.clone();
+    let client_id_for_db = params.client_id.clone();
+    let redirect_uri_for_db = params.redirect_uri.clone();
+    let user_id_for_db = params.user_id.clone();
+    let scope_for_db = scope.to_string();
+    let challenge_for_db = params.code_challenge.clone();
+    let challenge_method_for_db = params.code_challenge_method.clone();
+    
+    tokio::spawn(async move {
+        if let Err(e) = db.create_authorization_code(
+            &code_for_db,
+            &client_id_for_db,
+            &redirect_uri_for_db,
+            &user_id_for_db,
+            &scope_for_db,
+            &challenge_for_db,
+            &challenge_method_for_db,
+            expires_at,
+        )
+        .await
+        {
+            error!("Failed to save authorization code to database: {}", e);
+        }
+    });
 
     // Build redirect URL with authorization code
     let mut redirect_url = params.redirect_uri.clone();
@@ -146,11 +172,18 @@ async fn handle_authorization_code_grant(
     let code_verifier = req.code_verifier.as_ref()
         .ok_or_else(|| OAuthError::InvalidRequest("code_verifier is required (PKCE)".to_string()))?;
     // info!("-------------------{:?}", req);
-    // Retrieve and mark authorization code as used
-    let auth_code = state.db.get_and_mark_authorization_code_used(code).await
-        .inspect_err(|e|{error!("get_and_mark_authorization_code_used {}",e)})
-        .map_err(|_| OAuthError::ServerError)?
+    // Retrieve and remove authorization code from cache (mark as used)
+    let auth_code = state.auth_code_cache.get_and_remove(code).await
         .ok_or_else(|| OAuthError::InvalidGrant("Invalid or expired authorization code".to_string()))?;
+    
+    // Mark authorization code as used in database asynchronously
+    let db = state.db.clone();
+    let code_for_db = code.clone();
+    tokio::spawn(async move {
+        if let Err(e) = db.get_and_mark_authorization_code_used(&code_for_db).await {
+            error!("Failed to mark authorization code as used in database: {}", e);
+        }
+    });
 
     // Verify client_id matches
     if auth_code.client_id != req.client_id {

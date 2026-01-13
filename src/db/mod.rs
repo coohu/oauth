@@ -240,4 +240,12 @@ impl Database {
             .await
             .map_err(crate::error::AppError::Database)
     }
+
+    pub async fn load_valid_authorization_codes(
+        &self,
+    ) -> Result<Vec<authorization_code::AuthorizationCode>, crate::error::AppError> {
+        authorization_code::load_valid_codes(&self.pool)
+            .await
+            .map_err(crate::error::AppError::Database)
+    }
 }

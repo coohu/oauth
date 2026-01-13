@@ -88,3 +88,14 @@ pub async fn cleanup_expired(pool: &AnyPool) -> Result<u64, sqlx::Error> {
         .await?;
     Ok(res.rows_affected())
 }
+
+/// Load all valid (non-expired, non-used) authorization codes from the database
+pub async fn load_valid_codes(pool: &AnyPool) -> Result<Vec<AuthorizationCode>, sqlx::Error> {
+    let now = chrono::Utc::now().timestamp();
+    sqlx::query_as::<_, AuthorizationCode>(
+        "SELECT code, client_id, redirect_uri, user_id, scope, code_challenge, code_challenge_method, expires_at, used FROM authorization_codes WHERE expires_at > ? AND used = 0"
+    )
+    .bind(now)
+    .fetch_all(pool)
+    .await
+}
