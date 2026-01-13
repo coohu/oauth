@@ -18,8 +18,8 @@ Content-Type: application/json
 }
 ###
 GET http://100.64.0.1:8084/auth/me
-Authorization: Bearer a1da2f2e-7a2e-4319-bed4-c889f2cfa1c3
-###
+Authorization: Bearer ce90afcc-66c1-456d95d2-d5e297f83e4c
+
 POST http://100.64.0.1:8084/admin/client
 authorization: Bearer cxtD0gyEfZqVv7FmpU
 Content-Type: application/json

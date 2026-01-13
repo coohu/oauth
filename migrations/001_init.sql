@@ -10,14 +10,6 @@ CREATE TABLE IF NOT EXISTS oauth_client (
     created_at INTEGER NOT NULL
 );
 
--- Access tokens table
-CREATE TABLE IF NOT EXISTS access_token (
-    token_hash TEXT PRIMARY KEY,
-    client_id TEXT NOT NULL,
-    expires_at INTEGER NOT NULL,
-    user_id TEXT
-);
-
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
@@ -56,4 +48,13 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     expires_at INTEGER NOT NULL,
     revoked INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
+);
+
+
+-- Access tokens table
+CREATE TABLE IF NOT EXISTS access_token (
+    token_hash TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    user_id TEXT
 );

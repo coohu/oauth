@@ -2,7 +2,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use crate::{config::Config, router::build_router, state::AppState};
 use tokio::{signal,net::TcpListener};
 use anyhow::Result;
-use tracing::{error, info};
+use tracing::{error, info, debug};
 
 mod cache;
 mod middleware;
@@ -53,17 +53,36 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Start background task to cleanup expired codes every 60 seconds
-    let cache_cleanup = auth_code_cache.clone();
+    let auth_cache_cleanup = auth_code_cache.clone();
+    let token_cache = cache::token_cache::TokenCache::new();
+    let token_cache_cleanup = token_cache.clone();
+
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+        // 每 2 分钟执行一次
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(120)); 
         loop {
             interval.tick().await;
-            cache_cleanup.cleanup_expired().await;
+            
+            // 方式 A：顺序执行 (简单直观)
+            // 先清理 auth code，再清理 token
+            // auth_cache_cleanup.cleanup_expired().await;
+            // token_cache_cleanup.cleanup_expired().await;
+            
+            // 方式 B：并发执行 (如果清理操作很耗时，推荐用这种)
+            // 使用 tokio::join! 同时触发两个清理，等待它们都完成
+            tokio::join!(
+                auth_cache_cleanup.cleanup_expired(),
+                token_cache_cleanup.cleanup_expired()
+            );
+            debug!("Scheduled cleanup task completed");
         }
     });
-
-    let state = AppState { config, db, auth_code_cache };
+    let state = AppState {
+        config,
+        db,
+        auth_code_cache,
+        token_cache,
+    };
     let app = build_router(state.clone());
 
     let listener = TcpListener::bind(state.config.bind).await?;

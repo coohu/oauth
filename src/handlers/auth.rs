@@ -1,7 +1,4 @@
-use axum::{
-    extract::State,
-    Json,
-};
+use axum::{extract::{State}, Json };
 use serde::{Deserialize, Serialize};
 use crate::{error::AppError, state::AppState};
 use bcrypt::{hash, verify, DEFAULT_COST};
@@ -124,25 +121,45 @@ pub struct MeResponse {
     pub username: String,
 }
 
+use base64::{engine::general_purpose, Engine as _};
 pub async fn me(
     State(state): State<AppState>,
-    headers: axum::http::HeaderMap,
-) -> Result<Json<MeResponse>, AppError> {
+    headers:axum::http::HeaderMap,
+) -> Result<(axum::http::HeaderMap, Json<MeResponse>), AppError> {
     let auth_header = headers.get("Authorization")
         .and_then(|h| h.to_str().ok())
         .and_then(|h| h.strip_prefix("Bearer "))
         .ok_or(AppError::Unauthorized)?;
 
     let token_hash = crate::util::hash_token(auth_header);
-    let (_client_id, user_id) = state.db.get_access_token(&token_hash).await?
-        .ok_or(AppError::Unauthorized)?;
 
-    let user_id = user_id.ok_or(AppError::Unauthorized)?;
+    let user_id = if let Some(uid) = state.token_cache.get_user_id_by_access_token(&token_hash).await {
+        uid
+    } else {
+        let (_client_id, user_id) = state.db.get_access_token(&token_hash).await?
+            .ok_or(AppError::Unauthorized)?;
+        let user_id = user_id.ok_or(AppError::Unauthorized)?;
+
+        let expires_at = chrono::Utc::now().timestamp() + state.config.token_ttl_secs;
+        state.token_cache.insert_access_token(token_hash, user_id.clone(), expires_at).await;
+        user_id
+    };
+
     let user = state.db.get_user_by_id(&user_id).await?
         .ok_or(AppError::Unauthorized)?;
 
-    Ok(Json(MeResponse {
+    let response_data = MeResponse {
         id: user.id,
         username: user.username,
-    }))
+    };
+    let json_str = serde_json::to_string(&response_data)
+        .map_err(|_| AppError::Internal)?;
+    let b64_str = general_purpose::STANDARD.encode(json_str);
+
+    let mut headers = axum::http::HeaderMap::new();
+    let header_value = axum::http::HeaderValue::from_str(&b64_str)
+        .map_err(|_| AppError::Internal)?;
+
+    headers.insert("X-User-Data-Base64", header_value);    
+    Ok((headers, Json(response_data)))
 }

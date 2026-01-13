@@ -1,7 +1,7 @@
 use sqlx::AnyPool;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RefreshToken {
     pub token_hash: String,
     pub client_id: String,

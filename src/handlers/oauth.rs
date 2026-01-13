@@ -171,8 +171,6 @@ async fn handle_authorization_code_grant(
         .ok_or_else(|| OAuthError::InvalidRequest("redirect_uri is required".to_string()))?;
     let code_verifier = req.code_verifier.as_ref()
         .ok_or_else(|| OAuthError::InvalidRequest("code_verifier is required (PKCE)".to_string()))?;
-    // info!("-------------------{:?}", req);
-    // Retrieve and remove authorization code from cache (mark as used)
     let auth_code = state.auth_code_cache.get_and_remove(code).await
         .ok_or_else(|| OAuthError::InvalidGrant("Invalid or expired authorization code".to_string()))?;
     
@@ -220,6 +218,9 @@ async fn handle_authorization_code_grant(
     })
     .map_err(|_| OAuthError::ServerError)?;
 
+    // Cache access token to user_id mapping
+    state.token_cache.insert_access_token(access_token_hash, auth_code.user_id.clone(), access_expires_at).await;
+
     // Generate refresh token
     let refresh_token = util::generate_secure_token(32);
     let refresh_token_hash = util::hash_token(&refresh_token);
@@ -258,6 +259,8 @@ async fn handle_refresh_token_grant(
 
     // Verify refresh token
     let refresh_token_hash = util::hash_token(refresh_token_str);
+    
+    // Fallback to database (Refresh Token cache removed for security/consistency)
     let refresh_token = state.db.get_refresh_token(&refresh_token_hash).await
         .map_err(|_| OAuthError::ServerError)?
         .ok_or_else(|| OAuthError::InvalidGrant("Invalid or expired refresh token".to_string()))?;
@@ -278,6 +281,9 @@ async fn handle_refresh_token_grant(
         access_expires_at,
         Some(&refresh_token.user_id),
     ).await.map_err(|_| OAuthError::ServerError)?;
+
+    // Cache access token to user_id mapping
+    state.token_cache.insert_access_token(access_token_hash, refresh_token.user_id.clone(), access_expires_at).await;
 
     Ok(Json(TokenResponse {
         access_token,
