@@ -1,0 +1,45 @@
+POST http://100.64.0.1:8084/auth/register
+Content-Type: application/json
+
+{
+  "username": "toms",
+  "password": "v12345"
+}
+###
+GET http://100.64.0.1:8084/health
+Content-Type: application/json
+###
+POST http://100.64.0.1:8084/auth/login
+Content-Type: application/json
+
+{
+  "username": "toms",
+  "password": "v12345"
+}
+###
+GET http://100.64.0.1:8084/auth/me
+Authorization: Bearer a1da2f2e-7a2e-4319-bed4-c889f2cfa1c3
+###
+POST http://100.64.0.1:8084/admin/client
+authorization: Bearer cxtD0gyEfZqVv7FmpU
+Content-Type: application/json
+
+{
+  "client_id":"1",
+  "client_type":"public",
+  "redirect_uris":"http://100.64.0.1:8082/auth",
+  "allowed_scopes":"w+"
+}
+###
+GET http://100.64.0.1:8084/oauth/authorize
+Content-Type: application/json
+
+{
+  "client_id":"2",
+  "redirect_uri":"http://100.64.0.1:8082/auth",
+  "scope":"w+",
+  "code_challenge":"",
+  "response_type": "code",
+  "user_id":"e76fa28b-b3da-4ef1-bb8a-150151af752e",
+  "code_challenge_method": "S256"
+}
