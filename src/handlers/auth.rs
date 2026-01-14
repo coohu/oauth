@@ -5,7 +5,7 @@ use bcrypt::{hash, verify, DEFAULT_COST};
 
 #[derive(Deserialize)]
 pub struct RegisterRequest {
-    pub username: String,
+    pub email: String,
     pub password: String,
     pub captcha: Option<String>,
 }
@@ -13,7 +13,7 @@ pub struct RegisterRequest {
 #[derive(Serialize)]
 pub struct RegisterResponse {
     pub id: String,
-    pub username: String,
+    pub email: String,
 }
 
 pub async fn register(
@@ -21,11 +21,9 @@ pub async fn register(
     headers: axum::http::HeaderMap,
     Json(payload): Json<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, AppError> {
-    let username_len = payload.username.chars().count();
     let password_len = payload.password.chars().count();
-
-    if username_len < 4 {
-        return Err(AppError::BadRequest("Username must be at least 4 characters long".into()));
+    if !crate::util::is_valid_email(&payload.email) {
+        return Err(AppError::BadRequest("Invalid email format".into()));
     }
     if password_len < 6 {
         return Err(AppError::BadRequest("Password must be at least 6 characters long".into()));
@@ -48,18 +46,23 @@ pub async fn register(
         if !valid {
             return Err(AppError::BadRequest("Invalid CAPTCHA".into()));
         }
+        // Reset rate limit after successful CAPTCHA
+        // state.db.reset_rate_limit(&rate_limit_key).await?;
     }
 
     let password_hash = hash(payload.password, DEFAULT_COST)
         .map_err(|_| AppError::Internal)?;
 
-    let id = state.db.create_user(&payload.username, &password_hash).await?;
-    Ok(Json(RegisterResponse {id,username: payload.username}))
+    let id = state.db.create_user(&payload.email, &password_hash).await?;
+    Ok(Json(RegisterResponse {
+        id,
+        email: payload.email,
+    }))
 }
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
-    pub username: String,
+    pub email: String,
     pub password: String,
     pub captcha: Option<String>,
 }
@@ -79,7 +82,6 @@ pub async fn login(
         .unwrap_or("unknown");
     let rate_limit_key = format!("login:{}", ip);
 
-    // Limit to 10 logins per minute per IP
     let allowed = state.db.check_rate_limit(&rate_limit_key, 10, 60).await?;
     if !allowed {
         let captcha_token = payload.captcha.as_deref()
@@ -94,7 +96,7 @@ pub async fn login(
         }
     }
 
-    let user = state.db.get_user_by_username(&payload.username).await?
+    let user = state.db.get_user_by_email(&payload.email).await?
         .ok_or_else(|| AppError::Unauthorized)?;
 
     let valid = verify(payload.password, &user.password_hash)
@@ -115,10 +117,22 @@ pub async fn login(
     }))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct MeResponse {
     pub id: String,
-    pub username: String,
+    pub email: String,
+    pub username: Option<String>,
+    pub roles: Option<Vec<String>>,
+    pub tel: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateUserRequest {
+    pub email: Option<String>,
+    pub tel: Option<String>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub roles: Option<Vec<String>>,
 }
 
 use base64::{engine::general_purpose, Engine as _};
@@ -141,7 +155,7 @@ pub async fn me(
         let user_id = user_id.ok_or(AppError::Unauthorized)?;
 
         let expires_at = chrono::Utc::now().timestamp() + state.config.token_ttl_secs;
-        state.token_cache.insert_access_token(token_hash, user_id.clone(), expires_at).await;
+        state.token_cache.insert_access_token(token_hash, Some(user_id.clone()), expires_at).await;
         user_id
     };
 
@@ -150,16 +164,107 @@ pub async fn me(
 
     let response_data = MeResponse {
         id: user.id,
+        email: user.email,
         username: user.username,
+        roles: user.roles,
+        tel: user.tel,
     };
-    let json_str = serde_json::to_string(&response_data)
-        .map_err(|_| AppError::Internal)?;
-    let b64_str = general_purpose::STANDARD.encode(json_str);
+    let mpack_bytes = rmp_serde::to_vec(&response_data).map_err(|_| AppError::Internal)?;
+    let b64_str = general_purpose::URL_SAFE_NO_PAD.encode(mpack_bytes);
 
     let mut headers = axum::http::HeaderMap::new();
     let header_value = axum::http::HeaderValue::from_str(&b64_str)
         .map_err(|_| AppError::Internal)?;
-
-    headers.insert("X-User-Data-Base64", header_value);    
+    headers.insert("X-User-Data-Base64", header_value); 
     Ok((headers, Json(response_data)))
 }
+
+pub async fn update_user(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(target_user_id): axum::extract::Path<String>,
+    Json(payload): Json<UpdateUserRequest>,
+) -> Result<Json<()>, AppError> {
+    let auth_header = headers.get("Authorization")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .ok_or(AppError::Unauthorized)?;
+
+    let token_hash = crate::util::hash_token(auth_header);
+
+    // Get current user ID from cache or DB
+    let current_user_id = if let Some(uid) = state.token_cache.get_user_id_by_access_token(&token_hash).await {
+        uid
+    } else {
+        let (_client_id, user_id) = state.db.get_access_token(&token_hash).await?
+            .ok_or(AppError::Unauthorized)?;
+        user_id.ok_or(AppError::Unauthorized)?
+    };
+
+    let current_user = state.db.get_user_by_id(&current_user_id).await?
+        .ok_or(AppError::Unauthorized)?;
+
+    let is_admin = current_user.roles.as_ref()
+        .map(|r| r.contains(&"admin".to_string()))
+        .unwrap_or(false);
+
+    let is_self = current_user_id == target_user_id;
+
+    if !is_admin && !is_self {
+        return Err(AppError::Forbidden);
+    }
+
+    // Only admin can update roles
+    if payload.roles.is_some() && !is_admin {
+        return Err(AppError::Forbidden);
+    }
+
+    let password_hash = if let Some(p) = payload.password {
+        if p.chars().count() < 6 {
+            return Err(AppError::BadRequest("Password must be at least 6 characters long".into()));
+        }
+        Some(hash(p, DEFAULT_COST).map_err(|_| AppError::Internal)?)
+    } else {
+        None
+    };
+
+    state.db.update_user(
+        &target_user_id,
+        payload.email.as_deref(),
+        payload.tel.as_deref(),
+        payload.username.as_deref(),
+        password_hash.as_deref(),
+        payload.roles,
+    ).await?;
+
+    Ok(Json(()))
+}
+
+// use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+// use serde::Deserialize;
+
+// #[derive(Deserialize, Debug)]
+// pub struct MeResponse {
+//     pub id: String,
+//     pub username: String,
+// }
+
+// fn decode_user_data(header_value: &str) -> Result<MeResponse, Box<dyn std::error::Error>> {
+//     // 1. Base64URL 解码
+//     let decoded_bytes = URL_SAFE_NO_PAD.decode(header_value)?;
+
+//     // 2. MessagePack 反序列化
+//     let user_data: MeResponse = rmp_serde::from_slice(&decoded_bytes)?;
+
+//     Ok(user_data)
+// }
+
+// // 在 Axum 中间件或处理函数中使用
+// async fn business_handler(headers: axum::http::HeaderMap) {
+//     if let Some(user_data_b64) = headers.get("X-User-Data-Base64").and_then(|h| h.to_str().ok()) {
+//         match decode_user_data(user_data_b64) {
+//             Ok(user) => println!("当前用户 ID: {}, 用户名: {}", user.id, user.username),
+//             Err(e) => eprintln!("解码失败: {}", e),
+//         }
+//     }
+// }

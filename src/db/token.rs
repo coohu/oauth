@@ -1,4 +1,13 @@
 use sqlx::AnyPool;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct AccessToken {
+    pub token_hash: String,
+    pub client_id: String,
+    pub expires_at: i64,
+    pub user_id: Option<String>,
+}
 
 pub async fn insert_access_token(
     pool: &AnyPool,
@@ -30,5 +39,15 @@ pub async fn get_access_token(pool: &AnyPool, token_hash: &str) -> Result<Option
     .bind(token_hash)
     .bind(chrono::Utc::now().timestamp())
     .fetch_optional(pool)
+    .await
+}
+
+pub async fn load_valid_tokens(pool: &AnyPool) -> Result<Vec<AccessToken>, sqlx::Error> {
+    let now = chrono::Utc::now().timestamp();
+    sqlx::query_as::<_, AccessToken>(
+        "SELECT token_hash, client_id, expires_at, user_id FROM access_token WHERE expires_at > ? AND user_id IS NOT NULL"
+    )
+    .bind(now)
+    .fetch_all(pool)
     .await
 }

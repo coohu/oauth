@@ -35,6 +35,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/auth/register", post(handlers::auth::register))
         .route("/auth/login", post(handlers::auth::login))
         .route("/auth/me", get(handlers::auth::me))
+        .route("/auth/user/:id", post(handlers::auth::update_user))
         .layer(cors)
         .with_state(state)
 }

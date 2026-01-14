@@ -4,7 +4,7 @@ use tokio::sync::RwLock;
 
 #[derive(Clone)]
 pub struct CachedAccessToken {
-    pub user_id: String,
+    pub user_id: Option<String>,
     pub expires_at: i64,
 }
 
@@ -21,12 +21,19 @@ impl TokenCache {
         }
     }
 
-    pub async fn insert_access_token(&self, token_hash: String, user_id: String, expires_at: i64) {
+    pub async fn insert_access_token(&self, token_hash: String, user_id: Option<String>, expires_at: i64) {
         let mut cache = self.access_tokens.write().await;
         cache.insert(
             token_hash,
             CachedAccessToken {user_id, expires_at},
         );
+    }
+
+    pub async fn load_tokens(&self, tokens: Vec<(String, CachedAccessToken)>) {
+        let mut cache = self.access_tokens.write().await;
+        for (hash, token) in tokens {
+            cache.insert(hash, token);
+        }
     }
 
     pub async fn get_user_id_by_access_token(&self, token_hash: &str) -> Option<String> {
@@ -35,7 +42,7 @@ impl TokenCache {
         
         cache.get(token_hash).and_then(|token| {
             if token.expires_at > now {
-                Some(token.user_id.clone())
+                token.user_id.clone()
             } else {
                 None
             }

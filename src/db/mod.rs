@@ -147,7 +147,7 @@ impl Database {
         .map_err(crate::error::AppError::Database)
     }
 
-    pub async fn get_and_mark_authorization_code_used(
+    pub async fn mark_authorization_code(
         &self,
         code: &str,
     ) -> Result<Option<authorization_code::AuthorizationCode>, crate::error::AppError> {
@@ -202,16 +202,25 @@ impl Database {
 
     pub async fn create_user(
         &self,
-        username: &str,
+        email: &str,
         password_hash: &str,
     ) -> Result<String, crate::error::AppError> {
         let id = uuid::Uuid::new_v4().to_string();
-        user::create_user(&self.pool, &id, username, password_hash)
+        user::create_user(&self.pool, &id, email, password_hash)
             .await
             .map_err(crate::error::AppError::Database)?;
         Ok(id)
     }
 
+    pub async fn get_user_by_email(
+        &self,
+        email: &str,
+    ) -> Result<Option<user::User>, crate::error::AppError> {
+        user::get_user_by_email(&self.pool, email)
+            .await
+            .map_err(crate::error::AppError::Database)
+    }
+    #[allow(dead_code)]
     pub async fn get_user_by_username(
         &self,
         username: &str,
@@ -230,6 +239,20 @@ impl Database {
             .map_err(crate::error::AppError::Database)
     }
 
+    pub async fn update_user(
+        &self,
+        id: &str,
+        email: Option<&str>,
+        tel: Option<&str>,
+        username: Option<&str>,
+        password_hash: Option<&str>,
+        roles: Option<Vec<String>>,
+    ) -> Result<(), crate::error::AppError> {
+        user::update_user(&self.pool, id, email, tel, username, password_hash, roles)
+            .await
+            .map_err(crate::error::AppError::Database)
+    }
+
     pub async fn check_rate_limit(
         &self,
         key: &str,
@@ -240,11 +263,28 @@ impl Database {
             .await
             .map_err(crate::error::AppError::Database)
     }
+    #[allow(dead_code)]
+    pub async fn reset_rate_limit(
+        &self,
+        key: &str,
+    ) -> Result<(), crate::error::AppError> {
+        rate_limit::reset_rate_limit(&self.pool, key)
+            .await
+            .map_err(crate::error::AppError::Database)
+    }
 
     pub async fn load_valid_authorization_codes(
         &self,
     ) -> Result<Vec<authorization_code::AuthorizationCode>, crate::error::AppError> {
         authorization_code::load_valid_codes(&self.pool)
+            .await
+            .map_err(crate::error::AppError::Database)
+    }
+
+    pub async fn load_valid_tokens(
+        &self,
+    ) -> Result<Vec<token::AccessToken>, crate::error::AppError> {
+        token::load_valid_tokens(&self.pool)
             .await
             .map_err(crate::error::AppError::Database)
     }

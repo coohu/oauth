@@ -53,3 +53,14 @@ pub async fn check_rate_limit(
         }
     }
 }
+#[allow(dead_code)]
+pub async fn reset_rate_limit(
+    pool: &AnyPool,
+    key: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM rate_limits WHERE key = ?")
+        .bind(key)
+        .execute(pool)
+        .await?;
+    Ok(())
+}

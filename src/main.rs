@@ -27,7 +27,6 @@ async fn main() -> Result<()> {
     db.init().await?;
     let auth_code_cache = cache::authorization_code_cache::AuthorizationCodeCache::new();
     
-    // Load valid authorization codes from database into cache
     match db.load_valid_authorization_codes().await {
         Ok(codes) => {
             let count = codes.len();
@@ -55,6 +54,26 @@ async fn main() -> Result<()> {
 
     let auth_cache_cleanup = auth_code_cache.clone();
     let token_cache = cache::token_cache::TokenCache::new();
+
+    match db.load_valid_tokens().await {
+        Ok(tokens) => {
+            let count = tokens.len();
+            let cached_tokens: Vec<(String, cache::token_cache::CachedAccessToken)> = tokens
+                .into_iter()
+                .map(|t| (t.token_hash, cache::token_cache::CachedAccessToken {
+                    user_id: t.user_id,
+                    expires_at: t.expires_at,
+                }))
+                .collect();
+            token_cache.load_tokens(cached_tokens).await;
+            info!("Loaded {} valid access tokens into cache", count);
+        }
+        Err(e) => {
+            error!("Failed to load access tokens from database: {}", e);
+            tracing::warn!("Starting with empty access token cache");
+        }
+    }
+
     let token_cache_cleanup = token_cache.clone();
 
     tokio::spawn(async move {
@@ -62,14 +81,6 @@ async fn main() -> Result<()> {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(120)); 
         loop {
             interval.tick().await;
-            
-            // 方式 A：顺序执行 (简单直观)
-            // 先清理 auth code，再清理 token
-            // auth_cache_cleanup.cleanup_expired().await;
-            // token_cache_cleanup.cleanup_expired().await;
-            
-            // 方式 B：并发执行 (如果清理操作很耗时，推荐用这种)
-            // 使用 tokio::join! 同时触发两个清理，等待它们都完成
             tokio::join!(
                 auth_cache_cleanup.cleanup_expired(),
                 token_cache_cleanup.cleanup_expired()
@@ -77,12 +88,7 @@ async fn main() -> Result<()> {
             debug!("Scheduled cleanup task completed");
         }
     });
-    let state = AppState {
-        config,
-        db,
-        auth_code_cache,
-        token_cache,
-    };
+    let state = AppState { config, db, auth_code_cache, token_cache };
     let app = build_router(state.clone());
 
     let listener = TcpListener::bind(state.config.bind).await?;

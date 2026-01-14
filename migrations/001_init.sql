@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS oauth_client (
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
-    username TEXT NOT NULL UNIQUE,
+    email TEXT NOT NULL UNIQUE,
+    tel TEXT UNIQUE,
+    username TEXT UNIQUE,
     password_hash TEXT NOT NULL,
     created_at INTEGER NOT NULL
 );

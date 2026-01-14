@@ -2,7 +2,7 @@ POST http://100.64.0.1:8084/auth/register
 Content-Type: application/json
 
 {
-  "username": "toms",
+  "email": "t@t.com",
   "password": "v12345"
 }
 ###
@@ -13,12 +13,12 @@ POST http://100.64.0.1:8084/auth/login
 Content-Type: application/json
 
 {
-  "username": "toms",
+  "email": "t@t.com",
   "password": "v12345"
 }
 ###
 GET http://100.64.0.1:8084/auth/me
-Authorization: Bearer ce90afcc-66c1-456d95d2-d5e297f83e4c
+Authorization: Bearer fa03c55c-7d03-4457-a229-53e50c2d00ef
 
 POST http://100.64.0.1:8084/admin/client
 authorization: Bearer cxtD0gyEfZqVv7FmpU

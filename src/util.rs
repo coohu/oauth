@@ -28,7 +28,6 @@ pub fn verify_pkce(
     }
 }
 
-/// Generate a cryptographically secure random string for codes/tokens
 pub fn generate_secure_token(length: usize) -> String {
     use rand::Rng;
     let bytes: Vec<u8> = (0..length)
@@ -64,4 +63,17 @@ pub async fn verify_turnstile(
         .await?;
 
     Ok(res.success)
+}
+
+pub fn is_valid_email(email: &str) -> bool {
+    // A very simple email validation without regex crate
+    if email.len() < 5 {
+        return false;
+    }
+    let parts: Vec<&str> = email.split('@').collect();
+    if parts.len() != 2 {
+        return false;
+    }
+    let domain_parts: Vec<&str> = parts[1].split('.').collect();
+    domain_parts.len() >= 2 && !domain_parts.iter().any(|s| s.is_empty()) && !parts[0].is_empty()
 }
