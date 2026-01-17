@@ -43,14 +43,11 @@ pub async fn token_auth(
     };
 
     let auth = auth.to_str().map_err(|_| StatusCode::UNAUTHORIZED)?;
-
     let Some(token) = auth.strip_prefix("Bearer ") else {
         info!("Bearer prefix not found!");
         return Err(StatusCode::UNAUTHORIZED);
     };
-
     let token_hash = crate::util::hash_token(token);
-
     let user_id = if let Some(uid) = state.token_cache.get_user_id_by_access_token(&token_hash).await {
         Some(uid)
     } else {

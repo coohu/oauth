@@ -138,6 +138,5 @@ pub async fn drop_pat(
         .bind(id)
         .execute(pool)
         .await?;
-
     Ok(res.rows_affected())
 }

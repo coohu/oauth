@@ -274,7 +274,6 @@ pub async fn auth_pat(
     }))
 }
 
-
 #[derive(Deserialize)]
 pub struct CreatePatrRequest {
     pub name: Option<String>,
@@ -304,8 +303,7 @@ pub async fn create_pat(
             &pat,
             payload.scopes,
             expires_at,
-        )
-        .await?;
+        ).await?;
 
     Ok(Json(CreatePatResponse { pat }))
 }

@@ -14,8 +14,8 @@ impl Config {
     pub fn from_env() -> Self {
         dotenvy::dotenv().ok();
 
-        let database_url =
-            std::env::var("DATABASE_URL").expect("DATABASE_URL is required");
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL is required");
 
         let bind = std::env::var("BIND")
             .unwrap_or_else(|_| "0.0.0.0:8084".into())

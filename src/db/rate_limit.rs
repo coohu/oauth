@@ -22,7 +22,6 @@ pub async fn check_rate_limit(
     match row {
         Some((count, last_seen)) => {
             if last_seen < window_start {
-                // Reset window
                 sqlx::query("UPDATE rate_limits SET count = 1, last_seen = ? WHERE key = ?")
                     .bind(now)
                     .bind(key)
@@ -30,7 +29,6 @@ pub async fn check_rate_limit(
                     .await?;
                 Ok(true)
             } else if count < limit {
-                // Increment count
                 sqlx::query("UPDATE rate_limits SET count = count + 1, last_seen = ? WHERE key = ?")
                     .bind(now)
                     .bind(key)
@@ -38,12 +36,10 @@ pub async fn check_rate_limit(
                     .await?;
                 Ok(true)
             } else {
-                // Limit exceeded
                 Ok(false)
             }
         }
         None => {
-            // New entry
             sqlx::query("INSERT INTO rate_limits (key, count, last_seen) VALUES (?, 1, ?)")
                 .bind(key)
                 .bind(now)

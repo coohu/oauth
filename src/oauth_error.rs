@@ -113,9 +113,7 @@ impl IntoResponse for OAuthError {
             "error": self.error_code(),
             "error_description": self.description(),
         });
-
         let mut response = (status, Json(body)).into_response();
-        
         // Add WWW-Authenticate header for 401 responses
         if status == StatusCode::UNAUTHORIZED {
             response.headers_mut().insert(
@@ -123,7 +121,6 @@ impl IntoResponse for OAuthError {
                 "Bearer".parse().unwrap(),
             );
         }
-        
         response
     }
 }

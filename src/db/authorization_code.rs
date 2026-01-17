@@ -56,8 +56,6 @@ pub async fn get_and_mark_used(
     code: &str,
 ) -> Result<Option<AuthorizationCode>, sqlx::Error> {
     let now = chrono::Utc::now().timestamp();
-    
-    // Start transaction
     let mut tx = pool.begin().await?;
     
     let auth_code: Option<AuthorizationCode> = sqlx::query_as(
@@ -78,7 +76,6 @@ pub async fn get_and_mark_used(
             .execute(&mut *tx)
             .await?;
     }
-    
     tx.commit().await?;
     Ok(auth_code)
 }

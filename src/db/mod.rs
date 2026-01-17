@@ -329,8 +329,7 @@ impl Database {
             expires_at,
             last_used_at,
             deleted_at,
-        )
-        .await
+        ).await
         .map_err(crate::error::AppError::Database)
     }
 
