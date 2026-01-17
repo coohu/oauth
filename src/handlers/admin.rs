@@ -8,8 +8,8 @@ pub struct CreateClientReq {
     pub client_id: String,
     pub client_secret: Option<String>,
     pub client_type: String, // "public" or "confidential"
-    pub redirect_uris: String, // comma-separated
-    pub allowed_scopes: String, // comma-separated
+    pub redirect_uris: String,
+    pub allowed_scopes: String, 
 }
 
 #[derive(Serialize)]
@@ -22,17 +22,14 @@ pub async fn create_client(
     State(state): State<AppState>,
     Json(req): Json<CreateClientReq>,
 ) -> Result<Json<CreateClientResp>, AppError> {
-    // Validate client_type
     if req.client_type != "public" && req.client_type != "confidential" {
         return Err(AppError::BadRequest("client_type must be 'public' or 'confidential'".into()));
     }
 
-    // Validate that confidential clients have a secret
     if req.client_type == "confidential" && req.client_secret.is_none() {
         return Err(AppError::BadRequest("confidential clients must have a client_secret".into()));
     }
 
-    // Validate that public clients don't have a secret
     if req.client_type == "public" && req.client_secret.is_some() {
         return Err(AppError::BadRequest("public clients must not have a client_secret".into()));
     }
@@ -65,8 +62,6 @@ pub async fn delete_client(
     }
     Ok(StatusCode::NO_CONTENT)
 }
-
-
 
 #[derive(Deserialize)]
 pub struct UpdateClientReq {

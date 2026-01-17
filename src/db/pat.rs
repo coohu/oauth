@@ -132,10 +132,10 @@ pub async fn update_pat(
 #[allow(dead_code)]
 pub async fn drop_pat(
     pool: &AnyPool,
-    pat: &str,
+    id: &str,
 ) -> Result<u64, sqlx::Error> {
-    let res = sqlx::query("DELETE FROM personal_access_tokens WHERE token = ?")
-        .bind(pat)
+    let res = sqlx::query("DELETE FROM personal_access_tokens WHERE id = ?")
+        .bind(id)
         .execute(pool)
         .await?;
 

@@ -334,7 +334,7 @@ impl Database {
         .map_err(crate::error::AppError::Database)
     }
 
-    pub async fn delete_pat(&self, id: i64, user_id: &str) -> Result<u64, crate::error::AppError> {
+    pub async fn delete_pat(&self, id: i64) -> Result<u64, crate::error::AppError> {
         let now = chrono::Utc::now().timestamp();
         pat::update_pat(
             &self.pool,

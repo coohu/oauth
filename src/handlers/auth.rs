@@ -328,9 +328,7 @@ pub async fn update_pat(
         return Err(AppError::Forbidden);
     }
 
-    state
-        .db
-        .update_pat(
+    state.db.update_pat(
             &id.to_string(),
             None,
             payload.name.as_deref(),
@@ -339,8 +337,7 @@ pub async fn update_pat(
             payload.expires_at,
             None,
             None,
-        )
-        .await?;
+        ).await?;
 
     Ok(Json(()))
 }
@@ -363,6 +360,10 @@ pub async fn delete_pat(
     axum::extract::Path(id): axum::extract::Path<i64>,
     axum::Extension(user_id): axum::Extension<String>,
 ) -> Result<Json<()>, AppError> {
-    state.db.delete_pat(id, &user_id).await?;
+    let pats = state.db.get_pats(&user_id).await?;
+    if !pats.iter().any(|p| p.id == id) {
+        return Err(AppError::Forbidden);
+    }
+    state.db.delete_pat(id).await?;
     Ok(Json(()))
 }
