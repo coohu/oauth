@@ -45,9 +45,9 @@ pub async fn authorize(
             .to_redirect(&params.redirect_uri, params.state.as_deref()));
     }
 
-    if params.code_challenge_method != "S256" {
+    if params.code_challenge_method != "S256" && params.code_challenge_method != "plain" {
         return Err(OAuthError::InvalidRequest(
-            "code_challenge_method must be S256 ".to_string()
+            "code_challenge_method must be S256 or plain".to_string()
         ).to_redirect(&params.redirect_uri, params.state.as_deref()));
     }
     

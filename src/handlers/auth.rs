@@ -136,7 +136,7 @@ pub struct UpdateUserRequest {
 }
 
 use base64::{engine::general_purpose, Engine as _};
-pub async fn me(
+pub async fn user(
     State(state): State<AppState>,
     headers:axum::http::HeaderMap,
 ) -> Result<(axum::http::HeaderMap, Json<MeResponse>), AppError> {
@@ -181,40 +181,22 @@ pub async fn me(
 
 pub async fn update_user(
     State(state): State<AppState>,
-    headers: axum::http::HeaderMap,
     axum::extract::Path(target_user_id): axum::extract::Path<String>,
+    axum::Extension(user_id): axum::Extension<String>,
     Json(payload): Json<UpdateUserRequest>,
 ) -> Result<Json<()>, AppError> {
-    let auth_header = headers.get("Authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|h| h.strip_prefix("Bearer "))
-        .ok_or(AppError::Unauthorized)?;
-
-    let token_hash = crate::util::hash_token(auth_header);
-
-    // Get current user ID from cache or DB
-    let current_user_id = if let Some(uid) = state.token_cache.get_user_id_by_access_token(&token_hash).await {
-        uid
-    } else {
-        let (_client_id, user_id) = state.db.get_access_token(&token_hash).await?
-            .ok_or(AppError::Unauthorized)?;
-        user_id.ok_or(AppError::Unauthorized)?
-    };
-
-    let current_user = state.db.get_user_by_id(&current_user_id).await?
+    let current_user = state.db.get_user_by_id(&user_id).await?
         .ok_or(AppError::Unauthorized)?;
 
     let is_admin = current_user.roles.as_ref()
         .map(|r| r.contains(&"admin".to_string()))
         .unwrap_or(false);
 
-    let is_self = current_user_id == target_user_id;
+    let is_self = user_id == target_user_id;
 
     if !is_admin && !is_self {
         return Err(AppError::Forbidden);
     }
-
-    // Only admin can update roles
     if payload.roles.is_some() && !is_admin {
         return Err(AppError::Forbidden);
     }
@@ -236,7 +218,6 @@ pub async fn update_user(
         password_hash.as_deref(),
         payload.roles,
     ).await?;
-
     Ok(Json(()))
 }
 
@@ -268,3 +249,120 @@ pub async fn update_user(
 //         }
 //     }
 // }
+
+#[derive(Deserialize)]
+pub struct PatLoginRequest {
+    pub token: String,
+}
+pub async fn auth_pat(
+    State(state): State<AppState>,
+    Json(payload): Json<PatLoginRequest>,
+) -> Result<Json<LoginResponse>, AppError> {
+    let token = payload.token; 
+
+    let user = state.db.get_user_by_pat(&token).await?
+        .ok_or_else(|| AppError::Unauthorized)?;
+
+    let raw_token = crate::util::generate_secure_token(32);
+    let token_hash = crate::util::hash_token(&raw_token);
+    let expires_at = chrono::Utc::now().timestamp() + state.config.token_ttl_secs;
+    
+    state.db.issue_token(&token_hash, "pat", expires_at, Some(&user.id)).await?;
+
+    Ok(Json(LoginResponse {
+        token: raw_token,
+    }))
+}
+
+
+#[derive(Deserialize)]
+pub struct CreatePatrRequest {
+    pub name: Option<String>,
+    pub scopes: Option<Vec<String>>,
+    pub expires_in: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct CreatePatResponse {
+    pub pat: String,
+}
+
+pub async fn create_pat(
+    State(state): State<AppState>,
+    axum::Extension(user_id): axum::Extension<String>,
+    Json(payload): Json<CreatePatrRequest>,
+) -> Result<Json<CreatePatResponse>, AppError> {
+    let pat = crate::util::generate_secure_token(32);
+    let expires_at = payload
+        .expires_in
+        .map(|secs| chrono::Utc::now().timestamp() + secs)
+        .or_else(|| Some(chrono::Utc::now().timestamp() + state.config.token_ttl_secs));
+
+    state.db.create_pat(
+            &user_id,
+            payload.name.as_deref(),
+            &pat,
+            payload.scopes,
+            expires_at,
+        )
+        .await?;
+
+    Ok(Json(CreatePatResponse { pat }))
+}
+
+#[derive(Deserialize)]
+pub struct UpdatePatRequest {
+    pub name: Option<String>,
+    pub expires_at: Option<i64>,
+}
+
+pub async fn update_pat(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+    axum::Extension(user_id): axum::Extension<String>,
+    Json(payload): Json<UpdatePatRequest>,
+) -> Result<Json<()>, AppError> {
+    // Verify ownership
+    let pats = state.db.get_pats(&user_id).await?;
+    if !pats.iter().any(|p| p.id == id) {
+        return Err(AppError::Forbidden);
+    }
+
+    state
+        .db
+        .update_pat(
+            &id.to_string(),
+            None,
+            payload.name.as_deref(),
+            None,
+            None,
+            payload.expires_at,
+            None,
+            None,
+        )
+        .await?;
+
+    Ok(Json(()))
+}
+
+#[derive(Serialize)]
+pub struct GetPatResponse {
+    pub pats: Vec<crate::db::pat::Pat>,
+}
+
+pub async fn pats(
+    State(state): State<AppState>,
+    axum::Extension(user_id): axum::Extension<String>,
+) -> Result<Json<GetPatResponse>, AppError> {
+    let pats = state.db.get_pats(&user_id).await?;
+    Ok(Json(GetPatResponse { pats }))
+}
+
+pub async fn delete_pat(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+    axum::Extension(user_id): axum::Extension<String>,
+) -> Result<Json<()>, AppError> {
+    state.db.delete_pat(id, &user_id).await?;
+    Ok(Json(()))
+}

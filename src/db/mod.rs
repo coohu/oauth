@@ -5,7 +5,7 @@ pub mod user;
 pub mod rate_limit;
 pub mod authorization_code;
 pub mod refresh_token;
-
+pub mod pat;
 #[derive(Clone)]
 pub struct Database {
     pool: AnyPool,
@@ -285,6 +285,78 @@ impl Database {
         &self,
     ) -> Result<Vec<token::AccessToken>, crate::error::AppError> {
         token::load_valid_tokens(&self.pool)
+            .await
+            .map_err(crate::error::AppError::Database)
+    }
+
+    pub async fn create_pat(
+        &self,
+        user_id: &str,
+        name: Option<&str>,
+        token: &str,
+        scopes: Option<Vec<String>>,
+        expires_at: Option<i64>,
+    ) -> Result<(), crate::error::AppError> {
+        pat::create_pat(&self.pool, user_id, name, token, scopes, expires_at)
+            .await
+            .map_err(crate::error::AppError::Database)
+    }
+
+    pub async fn get_pats(&self, user_id: &str) -> Result<Vec<pat::Pat>, crate::error::AppError> {
+        pat::get_pats(&self.pool, user_id)
+            .await
+            .map_err(crate::error::AppError::Database)
+    }
+
+    pub async fn update_pat(
+        &self,
+        id: &str,
+        user_id: Option<&str>,
+        name: Option<&str>,
+        token: Option<&str>,
+        scopes: Option<Vec<String>>,
+        expires_at: Option<i64>,
+        last_used_at: Option<i64>,
+        deleted_at: Option<i64>,
+    ) -> Result<(), crate::error::AppError> {
+        pat::update_pat(
+            &self.pool,
+            id,
+            user_id,
+            name,
+            token,
+            scopes,
+            expires_at,
+            last_used_at,
+            deleted_at,
+        )
+        .await
+        .map_err(crate::error::AppError::Database)
+    }
+
+    pub async fn delete_pat(&self, id: i64, user_id: &str) -> Result<u64, crate::error::AppError> {
+        let now = chrono::Utc::now().timestamp();
+        pat::update_pat(
+            &self.pool,
+            &id.to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(now),
+        )
+        .await
+        .map_err(crate::error::AppError::Database)?;
+        Ok(1)
+    }
+
+    pub async fn get_user_by_pat(
+        &self,
+        pat: &str,
+    ) -> Result<Option<user::User>, crate::error::AppError> {
+        pat::get_user_by_pat(&self.pool, pat)
             .await
             .map_err(crate::error::AppError::Database)
     }

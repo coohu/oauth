@@ -60,3 +60,18 @@ CREATE TABLE IF NOT EXISTS access_token (
     expires_at INTEGER NOT NULL,
     user_id TEXT
 );
+
+-- Personal access tokens table
+CREATE TABLE IF NOT EXISTS personal_access_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    scopes TEXT,
+    expires_at INTEGER, 
+    last_used_at INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
