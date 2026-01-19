@@ -28,36 +28,38 @@ pub async fn register(
     if password_len < 6 {
         return Err(AppError::BadRequest("Password must be at least 6 characters long".into()));
     }
+
     let ip = headers.get("x-forwarded-for")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("unknown");
-    let rate_limit_key = format!("register:{}", ip);
 
-    // Limit to 5 registrations per hour per IP
-    let allowed = state.db.check_rate_limit(&rate_limit_key, 5, 3600).await?;
-    if !allowed {
-        let captcha_token = payload.captcha.as_deref()
-            .ok_or_else(|| AppError::BadRequest("CAPTCHA required due to high frequency".into()))?;
-        
+    let ip_limit_key = format!("register_ip:{}", ip);
+    let email_limit_key = format!("register_email:{}", payload.email);
+
+    let ip_allowed = state.db.check_rate_limit(&ip_limit_key, 5, 3600).await?;
+    let email_allowed = state.db.check_rate_limit(&email_limit_key, 3, 3600).await?;
+
+    if !ip_allowed || !email_allowed {
+        let captcha_token = payload.captcha.as_deref().ok_or_else(|| {
+            AppError::BadRequest("CAPTCHA required due to high frequency".into())
+        })?;
+
         let valid = crate::util::verify_turnstile(&state.config.cf_secret_key, captcha_token, Some(ip))
             .await
             .map_err(|_| AppError::Internal)?;
-            
+
         if !valid {
             return Err(AppError::BadRequest("Invalid CAPTCHA".into()));
         }
-        // Reset rate limit after successful CAPTCHA
-        // state.db.reset_rate_limit(&rate_limit_key).await?;
+    }
+    if state.db.get_user_by_email(&payload.email).await?.is_some() {
+        return Err(AppError::BadRequest("Email already registered".into()));
     }
 
-    let password_hash = hash(payload.password, DEFAULT_COST)
-        .map_err(|_| AppError::Internal)?;
+    let password_hash = hash(payload.password, DEFAULT_COST).map_err(|_| AppError::Internal)?;
 
     let id = state.db.create_user(&payload.email, &password_hash).await?;
-    Ok(Json(RegisterResponse {
-        id,
-        email: payload.email,
-    }))
+    Ok(Json(RegisterResponse {id, email: payload.email}))
 }
 
 #[derive(Deserialize)]
@@ -80,31 +82,47 @@ pub async fn login(
     let ip = headers.get("x-forwarded-for")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("unknown");
-    let rate_limit_key = format!("login:{}", ip);
 
-    let allowed = state.db.check_rate_limit(&rate_limit_key, 10, 60).await?;
-    if !allowed {
-        let captcha_token = payload.captcha.as_deref()
-            .ok_or_else(|| AppError::BadRequest("CAPTCHA required due to high frequency".into()))?;
-        
-        let valid = crate::util::verify_turnstile(&state.config.cf_secret_key, captcha_token, Some(ip))
-            .await
-            .map_err(|_| AppError::Internal)?;
-            
+    let ip_limit_key = format!("login_ip:{}", ip);
+    let email_limit_key = format!("login_fail:{}", payload.email);
+
+    // 1. Check IP-based rate limit (DDoS protection)
+    let ip_allowed = state.db.check_rate_limit(&ip_limit_key, 10, 60).await?;
+
+    // 2. Check Email-based failure count
+    let fail_count = state.db.get_rate_limit_count(&email_limit_key, 3600).await?;
+    let email_allowed = fail_count < 5;
+
+    // 3. Require CAPTCHA if either limit is exceeded
+    if !ip_allowed || !email_allowed {
+        let captcha_token = payload.captcha.as_deref().ok_or_else(|| {
+            AppError::BadRequest("CAPTCHA required due to multiple failed attempts".into())
+        })?;
+
+        let valid =
+            crate::util::verify_turnstile(&state.config.cf_secret_key, captcha_token, Some(ip))
+                .await
+                .map_err(|_| AppError::Internal)?;
+
         if !valid {
             return Err(AppError::BadRequest("Invalid CAPTCHA".into()));
         }
     }
 
-    let user = state.db.get_user_by_email(&payload.email).await?
-        .ok_or_else(|| AppError::Unauthorized)?;
+    let user_opt = state.db.get_user_by_email(&payload.email).await?;
 
-    let valid = verify(payload.password, &user.password_hash)
-        .map_err(|_| AppError::Internal)?;
+    let valid = if let Some(user) = &user_opt {
+        verify(&payload.password, &user.password_hash).map_err(|_| AppError::Internal)?
+    } else {
+        false
+    };
 
     if !valid {
+        state.db.check_rate_limit(&email_limit_key, 100, 3600).await?;
         return Err(AppError::Unauthorized);
     }
+    let user = user_opt.unwrap();
+    state.db.reset_rate_limit(&email_limit_key).await?;
 
     let raw_token = uuid::Uuid::new_v4().to_string();
     let token_hash = crate::util::hash_token(&raw_token);
@@ -112,9 +130,7 @@ pub async fn login(
     
     state.db.issue_token(&token_hash, "user_login", expires_at, Some(&user.id)).await?;
 
-    Ok(Json(LoginResponse {
-        token: raw_token,
-    }))
+    Ok(Json(LoginResponse {token: raw_token}))
 }
 
 #[derive(Serialize, Deserialize)]

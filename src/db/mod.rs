@@ -263,6 +263,16 @@ impl Database {
             .await
             .map_err(crate::error::AppError::Database)
     }
+
+    pub async fn get_rate_limit_count(
+        &self,
+        key: &str,
+        window_secs: i64,
+    ) -> Result<i64, crate::error::AppError> {
+        rate_limit::get_rate_limit_count(&self.pool, key, window_secs)
+            .await
+            .map_err(crate::error::AppError::Database)
+    }
     #[allow(dead_code)]
     pub async fn reset_rate_limit(
         &self,

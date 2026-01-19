@@ -49,6 +49,34 @@ pub async fn check_rate_limit(
         }
     }
 }
+
+pub async fn get_rate_limit_count(
+    pool: &AnyPool,
+    key: &str,
+    window_secs: i64,
+) -> Result<i64, sqlx::Error> {
+    let now = chrono::Utc::now().timestamp();
+    let window_start = now - window_secs;
+
+    let row: Option<(i64, i64)> = sqlx::query_as(
+        "SELECT count, last_seen FROM rate_limits WHERE key = ?"
+    )
+    .bind(key)
+    .fetch_optional(pool)
+    .await?;
+
+    match row {
+        Some((count, last_seen)) => {
+            if last_seen < window_start {
+                Ok(0)
+            } else {
+                Ok(count)
+            }
+        }
+        None => Ok(0),
+    }
+}
+
 #[allow(dead_code)]
 pub async fn reset_rate_limit(
     pool: &AnyPool,
