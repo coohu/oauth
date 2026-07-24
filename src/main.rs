@@ -30,7 +30,7 @@ impl CodeCache {
                 .build(),
         }
     }
-
+    #[allow(dead_code)]
     async fn get(&self, key: &str) -> Option<AuthCode> {
         self.cache.get(key).await
     }
